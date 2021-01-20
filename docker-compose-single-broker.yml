@@ -1,0 +1,63 @@
+version: '2'
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper
+    ports:
+      - "2181:2181"
+    volumes:
+      - /kafka/zookeper-data/data:/var/lib/zookeeper/data
+      - /kafka/zookeper-data/log:/var/lib/zookeeper/log
+  kafka:
+    build: .
+    ports:
+      - "9092:9092"
+      - "9011:9011"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: 172.28.14.199
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LOG_DIRS: /kafka/kafka-logs
+      KAFKA_LOG_CLEANER_ENABLE: 'false' # -> brrt tidak di compact alias di delete (compact: hanya state terakhir yang di pertahankan, yang lama di delete)
+      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 20000 # expire mau di compact atau di delete -> 20000
+      KAFKA_LOG_FLUSH_INTERVAL_MS: 10000 # sebelum di delete di keep brp lama in ms ya
+      KAFKA_LOG_FLUSH_SCHEDULER_INTERVAL_MS: 2000 # scheduler flush interval brp kali checkingnya
+      KAFKA_LOG_MESSAGE_FORMAT_VERSION: 0.8.2
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000 # check interval
+      KAFKA_LOG_RETENTION_MINUTES: 1440
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=172.28.14.199 -Dcom.sun.management.jmxremote.rmi.port=9011"
+      JMX_PORT: 9011
+    volumes:
+      - /kafka/kafka-data:/kafka/kafka-logs
+      - /var/run/docker.sock:/var/run/docker.sock
+  connect:
+    build:
+      context: debezium-jmx-exporter
+    ports:
+     - 8083:8083
+     - 1976:1976
+    links:
+     - kafka
+    environment:
+     - BOOTSTRAP_SERVERS=kafka:9092
+     - GROUP_ID=cluster_trans_group_1
+     - CONFIG_STORAGE_TOPIC=cluster_trans_config
+     - OFFSET_STORAGE_TOPIC=cluster_trans_offsets
+     - STATUS_STORAGE_TOPIC=cluster_trans_status
+     - KAFKA_OPTS=-javaagent:/kafka/jmx_prometheus_javaagent.jar=8080:/kafka/config.yml
+     - JMX_PORT=1976
+  prometheus:
+    build:
+      context: debezium-prometheus
+    ports:
+     - 9090:9090
+    links:
+     - connect
+  grafana:
+    build:
+      context: debezium-grafana
+    ports:
+     - 3000:3000
+    links:
+     - prometheus
+    environment:
+     - DS_PROMETHEUS=prometheus
